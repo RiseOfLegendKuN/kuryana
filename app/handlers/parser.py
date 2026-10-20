@@ -1,3 +1,4 @@
+import asyncio
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Type, TypeVar, Union
 from urllib.parse import urljoin
@@ -46,22 +47,28 @@ class Parser:
         code = 500  # default to 500, internal server error
         soup = None
 
-        try:
-            client = primp.Client(impersonate="chrome", impersonate_os="linux")
-            resp = client.get(url)
+        for attempt in range(4):
+            try:
+                client = primp.Client(impersonate="chrome", impersonate_os="linux")
+                resp = client.get(url, headers=cls.headers)
+                code = resp.status_code
 
-            # set the main soup var
-            soup = BeautifulSoup(
-                resp.text,
-                "html.parser",  # use `lxml` parser for better speed
-            )
+                if (code == 403 or code >= 500) and attempt < 3:
+                    await asyncio.sleep(2**attempt)
+                    continue
 
-            # set the status code
-            code = resp.status_code
-            ok = resp.status_code == 200
-
-        except Exception:
-            ok = False
+                # set the main soup var
+                soup = BeautifulSoup(
+                    resp.text,
+                    "html.parser",  # use `lxml` parser for better speed
+                )
+                ok = code == 200
+                break
+            except Exception:
+                if attempt == 3:
+                    ok = False
+                    break
+                await asyncio.sleep(2**attempt)
 
         return cls(soup, query, code, ok)
 
